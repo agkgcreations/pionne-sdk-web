@@ -1,0 +1,251 @@
+import {
+  gatherDynamicContext,
+  gatherStaticContext,
+  mergeContexts,
+} from './context';
+import type {
+  Level,
+  Mechanism,
+  MechanismType,
+  PionneEvent,
+  PionneOptions,
+} from './types';
+
+export type { Level, Mechanism, MechanismType, PionneEvent, PionneOptions };
+
+const DEFAULT_ENDPOINT = 'https://pionne.agkgcreations.fr/api/ingest';
+const DEFAULT_MAX_STACK = 50;
+
+type ResolvedConfig = Required<
+  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release'>
+> & {
+  beforeSend?: PionneOptions['beforeSend'];
+  userIdAnon?: string;
+  tags?: Record<string, string>;
+  release?: string;
+};
+
+let config: ResolvedConfig | null = null;
+let staticContext: Partial<PionneEvent> = {};
+let onError: ((ev: ErrorEvent) => void) | null = null;
+let onRejection: ((ev: PromiseRejectionEvent) => void) | null = null;
+
+function isLocalhost(): boolean {
+  if (typeof location === 'undefined') return false;
+  const h = location.hostname;
+  return (
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '0.0.0.0' ||
+    h.endsWith('.local')
+  );
+}
+
+function parseStack(error: Error, max: number): string[] {
+  if (!error.stack) return [];
+  return error.stack
+    .split('\n')
+    .slice(0, max)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function buildEvent(
+  err: unknown,
+  level: Level,
+  mechanism: MechanismType,
+  handled: boolean,
+  extra?: Partial<PionneEvent>,
+): PionneEvent | null {
+  if (!config || !config.enabled) return null;
+  const e = err instanceof Error ? err : new Error(String(err));
+
+  const dynamic = gatherDynamicContext();
+  const merged = mergeContexts(staticContext, dynamic);
+
+  const event: PionneEvent = {
+    ...merged,
+    exception_type: e.name || 'Error',
+    message: e.message || null,
+    stack: parseStack(e, config.maxStackFrames),
+    level,
+    release: config.release,
+    environment: config.environment,
+    user_id_anon: config.userIdAnon,
+    tags: config.tags,
+    mechanism: { type: mechanism, handled },
+    ...extra,
+  };
+
+  if (config.beforeSend) {
+    const result = config.beforeSend(event);
+    if (!result) return null;
+    return result;
+  }
+  return event;
+}
+
+function send(event: PionneEvent): void {
+  if (!config) return;
+  const body = JSON.stringify(event);
+  // sendBeacon is more reliable when the page is unloading (e.g. crash on
+  // navigation). Falls back to fetch with keepalive otherwise.
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    try {
+      const blob = new Blob([body], { type: 'application/json' });
+      // Beacon doesn't let us set custom headers; use ?token=… as a fallback
+      // — the API accepts both `X-Pionne-Token` header AND query string.
+      const url = `${config.endpoint}?token=${encodeURIComponent(config.token)}`;
+      const ok = navigator.sendBeacon(url, blob);
+      if (ok) return;
+    } catch {
+      // fall through to fetch
+    }
+  }
+  if (typeof fetch === 'function') {
+    fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Pionne-Token': config.token,
+      },
+      body,
+      keepalive: true,
+      mode: 'cors',
+      credentials: 'omit',
+    }).catch(() => {
+      // Best-effort: a monitoring SDK must never crash the host page.
+    });
+  }
+}
+
+function installUncaughtErrorHandler(): void {
+  if (typeof window === 'undefined') return;
+  onError = (ev: ErrorEvent) => {
+    const err =
+      ev.error instanceof Error
+        ? ev.error
+        : new Error(ev.message || 'Unknown error');
+    const event = buildEvent(err, 'error', 'onerror', false);
+    if (event) send(event);
+  };
+  window.addEventListener('error', onError);
+}
+
+function installRejectionHandler(): void {
+  if (typeof window === 'undefined') return;
+  onRejection = (ev: PromiseRejectionEvent) => {
+    const reason = ev.reason;
+    const err =
+      reason instanceof Error ? reason : new Error(String(reason));
+    const event = buildEvent(err, 'error', 'onunhandledrejection', false);
+    if (event) send(event);
+  };
+  window.addEventListener('unhandledrejection', onRejection);
+}
+
+export const Pionne = {
+  /**
+   * Initialise the SDK. Call this once, as early as possible — ideally
+   * before your app code runs (e.g. top of `main.tsx` / `_app.tsx`).
+   */
+  init(options: PionneOptions): void {
+    if (!options?.token || !options.token.startsWith('pio_live_')) {
+      if (isLocalhost() && typeof console !== 'undefined') {
+        console.warn(
+          '[Pionne] Missing or invalid token (must start with pio_live_).',
+        );
+      }
+      return;
+    }
+
+    const autoContext = options.autoContext ?? true;
+    staticContext = autoContext ? gatherStaticContext() : {};
+
+    config = {
+      token: options.token,
+      endpoint: options.endpoint ?? DEFAULT_ENDPOINT,
+      release: options.release,
+      environment:
+        options.environment ?? (isLocalhost() ? 'development' : 'production'),
+      enabled: options.enabled ?? true,
+      captureUncaughtErrors: options.captureUncaughtErrors ?? true,
+      captureUnhandledRejections: options.captureUnhandledRejections ?? true,
+      autoContext,
+      beforeSend: options.beforeSend,
+      userIdAnon: options.userIdAnon,
+      tags: options.tags,
+      maxStackFrames: options.maxStackFrames ?? DEFAULT_MAX_STACK,
+    };
+
+    if (config.captureUncaughtErrors) installUncaughtErrorHandler();
+    if (config.captureUnhandledRejections) installRejectionHandler();
+  },
+
+  /**
+   * Manually capture an exception. Safe to call before init() (no-op).
+   */
+  captureException(err: unknown, extra?: Partial<PionneEvent>): void {
+    const event = buildEvent(
+      err,
+      extra?.level ?? 'error',
+      'manual',
+      true,
+      extra,
+    );
+    if (event) send(event);
+  },
+
+  /**
+   * Capture a string message (useful for non-error events).
+   */
+  captureMessage(message: string, extra?: Partial<PionneEvent>): void {
+    const event = buildEvent(
+      new Error(message),
+      extra?.level ?? 'info',
+      'manual',
+      true,
+      { exception_type: 'Message', ...extra },
+    );
+    if (event) send(event);
+  },
+
+  /**
+   * Set / update the anonymous user id sent with every event.
+   */
+  setUser(userIdAnon: string | null): void {
+    if (!config) return;
+    config.userIdAnon = userIdAnon ?? undefined;
+  },
+
+  /**
+   * Merge tags applied to every event. Pass null to clear.
+   */
+  setTags(tags: Record<string, string> | null): void {
+    if (!config) return;
+    config.tags = tags ?? undefined;
+  },
+
+  /**
+   * Toggle reporting at runtime (e.g. after user opts out).
+   */
+  setEnabled(enabled: boolean): void {
+    if (!config) return;
+    config.enabled = enabled;
+  },
+
+  /**
+   * Detach all auto handlers. Useful in tests / hot-reload scenarios.
+   * The instance can be re-initialised by calling `init()` again.
+   */
+  uninstall(): void {
+    if (typeof window !== 'undefined') {
+      if (onError) window.removeEventListener('error', onError);
+      if (onRejection) window.removeEventListener('unhandledrejection', onRejection);
+    }
+    onError = null;
+    onRejection = null;
+    config = null;
+    staticContext = {};
+  },
+};

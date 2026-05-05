@@ -1,0 +1,63 @@
+{
+  "name": "@pionne/web",
+  "version": "0.1.1",
+  "description": "Error monitoring SDK for the browser — Pionne. Auto-captures uncaught errors, unhandled promise rejections, and ships rich client context (UA, viewport, locale).",
+  "license": "MIT",
+  "author": "AGKG Creations",
+  "homepage": "https://pionne.agkgcreations.fr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agkgcreations/pionne-sdk-web.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agkgcreations/pionne-sdk-web/issues"
+  },
+  "keywords": [
+    "pionne",
+    "browser",
+    "web",
+    "react",
+    "vue",
+    "svelte",
+    "error-monitoring",
+    "crash-reporting",
+    "sentry-alternative",
+    "observability"
+  ],
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "browser": "dist/index.mjs",
+  "source": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false
+}
