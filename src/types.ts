@@ -120,4 +120,10 @@ export interface PionneOptions {
   tags?: Record<string, string>;
   /** Maximum stack frames sent. Default: 50. */
   maxStackFrames?: number;
+  /**
+   * Release Health — open a session at init() and flip to crashed/errored
+   * on uncaught errors. Used by the dashboard to compute crash-free user
+   * rate per release. Default: true.
+   */
+  releaseHealth?: boolean;
 }

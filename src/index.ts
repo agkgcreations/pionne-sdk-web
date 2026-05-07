@@ -3,6 +3,17 @@ import {
   gatherStaticContext,
   mergeContexts,
 } from './context';
+import {
+  type FeedbackContext,
+  type FeedbackPayload,
+  sendFeedback as _sendFeedback,
+} from './feedback';
+import {
+  endSession as _endSession,
+  flipFromEvent,
+  getCurrentSessionId,
+  startSession as _startSession,
+} from './sessions';
 import type {
   Level,
   Mechanism,
@@ -11,13 +22,20 @@ import type {
   PionneOptions,
 } from './types';
 
-export type { Level, Mechanism, MechanismType, PionneEvent, PionneOptions };
+export type {
+  FeedbackPayload,
+  Level,
+  Mechanism,
+  MechanismType,
+  PionneEvent,
+  PionneOptions,
+};
 
 const DEFAULT_ENDPOINT = 'https://pionne.agkgcreations.fr/api/ingest';
 const DEFAULT_MAX_STACK = 50;
 
 type ResolvedConfig = Required<
-  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release'>
+  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release' | 'releaseHealth'>
 > & {
   beforeSend?: PionneOptions['beforeSend'];
   userIdAnon?: string;
@@ -127,7 +145,10 @@ function installUncaughtErrorHandler(): void {
         ? ev.error
         : new Error(ev.message || 'Unknown error');
     const event = buildEvent(err, 'error', 'onerror', false);
-    if (event) send(event);
+    if (event) {
+      send(event);
+      flipFromEvent(event.level, event.mechanism?.type ?? 'onerror');
+    }
   };
   window.addEventListener('error', onError);
 }
@@ -139,7 +160,10 @@ function installRejectionHandler(): void {
     const err =
       reason instanceof Error ? reason : new Error(String(reason));
     const event = buildEvent(err, 'error', 'onunhandledrejection', false);
-    if (event) send(event);
+    if (event) {
+      send(event);
+      flipFromEvent(event.level, event.mechanism?.type ?? 'onunhandledrejection');
+    }
   };
   window.addEventListener('unhandledrejection', onRejection);
 }
@@ -180,6 +204,19 @@ export const Pionne = {
 
     if (config.captureUncaughtErrors) installUncaughtErrorHandler();
     if (config.captureUnhandledRejections) installRejectionHandler();
+
+    // Release Health — open a session unless the host opted out.
+    if (options.releaseHealth !== false) {
+      _startSession({
+        endpoint: config.endpoint,
+        token: config.token,
+        release: config.release,
+        environment: config.environment,
+        appVersion: staticContext.app_version,
+        osName: staticContext.os_name,
+        userIdAnon: config.userIdAnon,
+      });
+    }
   },
 
   /**
@@ -247,5 +284,42 @@ export const Pionne = {
     onRejection = null;
     config = null;
     staticContext = {};
+  },
+
+  // ─── Release Health ───────────────────────────────────────────────────
+
+  /** Manually end the current session (status='exited'). */
+  endSession(): void {
+    _endSession();
+  },
+
+  /** UUID of the current open session (for diagnostics). */
+  getSessionId(): string | null {
+    return getCurrentSessionId();
+  },
+
+  // ─── User Feedback ────────────────────────────────────────────────────
+
+  /** Send feedback to /api/events/{id}/feedback (or /api/feedback). */
+  async captureFeedback(payload: FeedbackPayload): Promise<{ ok: boolean; status: number }> {
+    if (!config) return { ok: false, status: 0 };
+    return _sendFeedback(
+      {
+        endpoint: config.endpoint,
+        token: config.token,
+        appVersion: staticContext.app_version,
+      },
+      payload,
+    );
+  },
+
+  /** Returns the wired-up {endpoint, token} for power users rolling their own UI. */
+  getFeedbackContext(): FeedbackContext | null {
+    if (!config) return null;
+    return {
+      endpoint: config.endpoint,
+      token: config.token,
+      appVersion: staticContext.app_version,
+    };
   },
 };
