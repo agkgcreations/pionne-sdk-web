@@ -8,6 +8,7 @@ import {
   type FeedbackPayload,
   sendFeedback as _sendFeedback,
 } from './feedback';
+import { RateLimiter, validateEndpoint, validateToken } from './security';
 import {
   endSession as _endSession,
   flipFromEvent,
@@ -35,7 +36,7 @@ const DEFAULT_ENDPOINT = 'https://pionne.agkgcreations.fr/api/ingest';
 const DEFAULT_MAX_STACK = 50;
 
 type ResolvedConfig = Required<
-  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release' | 'releaseHealth'>
+  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release' | 'releaseHealth' | 'maxEventsPerSecond'>
 > & {
   beforeSend?: PionneOptions['beforeSend'];
   userIdAnon?: string;
@@ -47,6 +48,8 @@ let config: ResolvedConfig | null = null;
 let staticContext: Partial<PionneEvent> = {};
 let onError: ((ev: ErrorEvent) => void) | null = null;
 let onRejection: ((ev: PromiseRejectionEvent) => void) | null = null;
+let rateLimiter: RateLimiter | null = null;
+let droppedByRateLimit = 0;
 
 function isLocalhost(): boolean {
   if (typeof location === 'undefined') return false;
@@ -105,6 +108,13 @@ function buildEvent(
 
 function send(event: PionneEvent): void {
   if (!config) return;
+  if (rateLimiter && !rateLimiter.allow()) {
+    droppedByRateLimit++;
+    if (isLocalhost() && droppedByRateLimit % 50 === 1 && typeof console !== 'undefined') {
+      console.warn(`[Pionne] rate-limit reached (${droppedByRateLimit} events dropped). Bump maxEventsPerSecond if intentional.`);
+    }
+    return;
+  }
   const body = JSON.stringify(event);
   // sendBeacon is more reliable when the page is unloading (e.g. crash on
   // navigation). Falls back to fetch with keepalive otherwise.
@@ -174,14 +184,22 @@ export const Pionne = {
    * before your app code runs (e.g. top of `main.tsx` / `_app.tsx`).
    */
   init(options: PionneOptions): void {
-    if (!options?.token || !options.token.startsWith('pio_live_')) {
-      if (isLocalhost() && typeof console !== 'undefined') {
-        console.warn(
-          '[Pionne] Missing or invalid token (must start with pio_live_).',
-        );
+    try {
+      if (!options?.token || !validateToken(options.token)) {
+        if (isLocalhost() && typeof console !== 'undefined') {
+          console.warn('[Pionne] Missing or invalid token (expected pio_live_<≥16 chars>, no placeholders).');
+        }
+        return;
       }
-      return;
-    }
+      const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+      if (!validateEndpoint(endpoint, isLocalhost())) {
+        if (typeof console !== 'undefined') {
+          console.warn('[Pionne] Refusing non-HTTPS endpoint in production:', endpoint);
+        }
+        return;
+      }
+      const rps = options.maxEventsPerSecond ?? 10;
+      rateLimiter = rps > 0 ? new RateLimiter(rps, rps) : null;
 
     const autoContext = options.autoContext ?? true;
     staticContext = autoContext ? gatherStaticContext() : {};
@@ -216,6 +234,12 @@ export const Pionne = {
         osName: staticContext.os_name,
         userIdAnon: config.userIdAnon,
       });
+    }
+    } catch (e) {
+      if (typeof console !== 'undefined') {
+        console.warn('[Pionne] init failed silently — monitoring disabled.', e);
+      }
+      config = null;
     }
   },
 

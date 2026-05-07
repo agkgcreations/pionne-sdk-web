@@ -126,4 +126,10 @@ export interface PionneOptions {
    * rate per release. Default: true.
    */
   releaseHealth?: boolean;
+  /**
+   * Token-bucket rate limit on outgoing events (events per second).
+   * Default: 10. Set to 0 to disable. Drops silently when exceeded —
+   * protects against runaway loops and caps your monthly Pionne quota.
+   */
+  maxEventsPerSecond?: number;
 }
