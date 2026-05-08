@@ -73,6 +73,23 @@ Pionne.setTags({ tier: 'pro', region: 'eu' });
 Pionne.setEnabled(false);
 ```
 
+### Geography (opt-in)
+
+Approximate visitor location (city, region, country) attached to every event,
+just like Sentry. Off by default for privacy — flip `sendGeography` to enable:
+
+```ts
+Pionne.init({
+  token: 'pio_live_xxx',
+  sendGeography: true,
+});
+```
+
+Resolved once at startup via a free IP→geo lookup (`ipapi.co/json` by
+default), with a 4 s timeout. If the lookup fails the SDK silently keeps
+shipping events without geo. Override the endpoint via `geographyEndpoint`
+if you have your own.
+
 ## Options
 
 | Option                       | Type                       | Default                   |
@@ -89,6 +106,8 @@ Pionne.setEnabled(false);
 | `tags`                       | `Record<string, string>`   | unset                     |
 | `maxStackFrames`             | `number`                   | `50`                      |
 | `beforeSend`                 | `(event) => event \| null` | unset (drop if `null`)    |
+| `sendGeography`              | `boolean`                  | `false`                   |
+| `geographyEndpoint`          | `string`                   | `https://ipapi.co/json/`  |
 
 ## License
 

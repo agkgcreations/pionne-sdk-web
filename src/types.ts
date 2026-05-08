@@ -56,6 +56,13 @@ export interface SdkContext {
   version: string;
 }
 
+export interface GeoContext {
+  city?: string;
+  region?: string;
+  country?: string;
+  country_code?: string;
+}
+
 export interface PionneContexts {
   browser?: BrowserContext;
   os?: OsContext;
@@ -63,6 +70,7 @@ export interface PionneContexts {
   app?: AppContext;
   runtime?: RuntimeContext;
   sdk?: SdkContext;
+  geo?: GeoContext;
 }
 
 // =====================================================================
@@ -132,4 +140,16 @@ export interface PionneOptions {
    * protects against runaway loops and caps your monthly Pionne quota.
    */
   maxEventsPerSecond?: number;
+  /**
+   * Opt-in: resolve approximate user geography (city, region, country) once at
+   * startup via a free IP→location lookup, and attach it to every event under
+   * `contexts.geo`. Off by default for privacy.
+   */
+  sendGeography?: boolean;
+  /**
+   * Override the IP→geography endpoint. Must return JSON with at least
+   * `city`, `region`, `country` (or `country_name`), and `country_code`
+   * fields. Default: https://ipapi.co/json/.
+   */
+  geographyEndpoint?: string;
 }

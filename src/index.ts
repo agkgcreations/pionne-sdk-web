@@ -16,6 +16,7 @@ import {
   startSession as _startSession,
 } from './sessions';
 import type {
+  GeoContext,
   Level,
   Mechanism,
   MechanismType,
@@ -25,6 +26,7 @@ import type {
 
 export type {
   FeedbackPayload,
+  GeoContext,
   Level,
   Mechanism,
   MechanismType,
@@ -33,6 +35,7 @@ export type {
 };
 
 const DEFAULT_ENDPOINT = 'https://pionne.agkgcreations.fr/api/ingest';
+const DEFAULT_GEO_ENDPOINT = 'https://ipapi.co/json/';
 const DEFAULT_MAX_STACK = 50;
 
 type ResolvedConfig = Required<
@@ -147,6 +150,47 @@ function send(event: PionneEvent): void {
   }
 }
 
+/**
+ * Fire-and-forget IP→geo lookup. Mutates `staticContext.contexts.geo` once it
+ * resolves so subsequent events carry the location. Failures are silent — a
+ * monitoring SDK must never crash or stall the host page.
+ */
+function fetchGeography(endpoint: string): void {
+  if (typeof fetch !== 'function') return;
+  const controller =
+    typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), 4000)
+    : null;
+  fetch(endpoint, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: controller?.signal,
+    credentials: 'omit',
+    mode: 'cors',
+  })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data: unknown) => {
+      if (!data || typeof data !== 'object') return;
+      const d = data as Record<string, unknown>;
+      const geo: GeoContext = {};
+      if (typeof d.city === 'string') geo.city = d.city;
+      if (typeof d.region === 'string') geo.region = d.region;
+      if (typeof d.country_name === 'string') geo.country = d.country_name;
+      else if (typeof d.country === 'string') geo.country = d.country;
+      if (typeof d.country_code === 'string') geo.country_code = d.country_code;
+      if (Object.keys(geo).length === 0) return;
+      const ctx = staticContext.contexts ?? {};
+      staticContext.contexts = { ...ctx, geo };
+    })
+    .catch(() => {
+      // Best-effort: silently ignore lookup failures.
+    })
+    .finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
+}
+
 function installUncaughtErrorHandler(): void {
   if (typeof window === 'undefined') return;
   onError = (ev: ErrorEvent) => {
@@ -218,10 +262,13 @@ export const Pionne = {
       userIdAnon: options.userIdAnon,
       tags: options.tags,
       maxStackFrames: options.maxStackFrames ?? DEFAULT_MAX_STACK,
+      sendGeography: options.sendGeography ?? false,
+      geographyEndpoint: options.geographyEndpoint ?? DEFAULT_GEO_ENDPOINT,
     };
 
     if (config.captureUncaughtErrors) installUncaughtErrorHandler();
     if (config.captureUnhandledRejections) installRejectionHandler();
+    if (config.sendGeography) fetchGeography(config.geographyEndpoint);
 
     // Release Health — open a session unless the host opted out.
     if (options.releaseHealth !== false) {
