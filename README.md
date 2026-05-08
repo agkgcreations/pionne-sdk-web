@@ -73,6 +73,19 @@ Pionne.setTags({ tier: 'pro', region: 'eu' });
 Pionne.setEnabled(false);
 ```
 
+### Bundle ID pinning — N/A on Web
+
+The "Bundle ID" anti-token-theft check on Pionne projects is **mobile only**
+(iOS/Android/RN/Flutter). On the web, your token is shipped in the bundled
+JS and trivially extractable from the browser — bundle pinning can't help.
+The field is hidden in the mobile dashboard for Web projects; **don't set
+it manually via the API** — the SDK does not send a top-level `app_id`,
+so a non-null `bundle_id` would 403 every event. To limit abuse: regenerate
+the token (24 h grace period) if you suspect a leak, and rely on the
+per-token rate limit (10 req/sec server-side). Use `tags` for
+deployment/tenant differentiation. See the
+[Bundle ID Pinning docs](https://pionne.agkgcreations.fr/security/bundle-id#backends-sans-bundle_id).
+
 ### Geography (opt-in)
 
 Approximate visitor location (city, region, country) attached to every event,
@@ -108,6 +121,18 @@ if you have your own.
 | `beforeSend`                 | `(event) => event \| null` | unset (drop if `null`)    |
 | `sendGeography`              | `boolean`                  | `false`                   |
 | `geographyEndpoint`          | `string`                   | `https://ipapi.co/json/`  |
+| `releaseHealth`              | `boolean`                  | `true`                    |
+| `maxEventsPerSecond`         | `number`                   | `10`                      |
+
+### Notes
+
+- **`maxEventsPerSecond`** — token-bucket client. Au-delà, les events sont droppés silencieusement. Protège contre les `setInterval` qui throw en boucle. `0` désactive (déconseillé).
+- **`releaseHealth`** — ouvre une session à `init()` pour calculer le crash-free user rate. Désactivable.
+- **`sendGeography`** — opt-in : attache `contexts.geo` (city/region/country/country_code) résolu IP-side. Pas de geolocation API, pas de permission.
+
+## Rate limit serveur
+
+Indépendamment du `maxEventsPerSecond` client, l'API Pionne cap **600 req/min/token** (= 10/sec) sur tous les endpoints publics (`/ingest`, `/sessions`, `/feedback`). Au-delà → `HTTP 429` avec un header `Retry-After`. Empêche un token leaké de drainer ton infra ou ton quota mensuel. Voir [doc rate limits](https://pionne.agkgcreations.fr/security/rate-limits).
 
 ## License
 
