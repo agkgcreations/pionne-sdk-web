@@ -108,7 +108,7 @@ The field is hidden in the mobile dashboard for Web projects; **don't set
 it manually via the API** — the SDK does not send a top-level `app_id`,
 so a non-null `bundle_id` would 403 every event. To limit abuse: regenerate
 the token (24 h grace period) if you suspect a leak, and rely on the
-per-token rate limit (10 req/sec server-side). Use `tags` for
+per-token rate limit server-side. Use `tags` for
 deployment/tenant differentiation. See the
 [Bundle ID Pinning docs](https://pionne.agkgcreations.fr/security/bundle-id#backends-sans-bundle_id).
 
@@ -158,7 +158,7 @@ if you have your own.
 
 ## Rate limit serveur
 
-Indépendamment du `maxEventsPerSecond` client, l'API Pionne cap **600 req/min/token** (= 10/sec) sur tous les endpoints publics (`/ingest`, `/sessions`, `/feedback`). Au-delà → `HTTP 429` avec un header `Retry-After`. Empêche un token leaké de drainer ton infra ou ton quota mensuel. Voir [doc rate limits](https://pionne.agkgcreations.fr/security/rate-limits).
+Indépendamment du `maxEventsPerSecond` client, l'API Pionne applique un rate-limit par token sur tous les endpoints publics. Au-delà → `HTTP 429` avec un header `Retry-After`. Empêche un token leaké de drainer ton quota mensuel. Voir [doc rate limits](https://pionne.agkgcreations.fr/security/rate-limits).
 
 ## License
 

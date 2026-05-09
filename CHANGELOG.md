@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5 — 2026-05-09
+
+### Documentation
+
+- README clarifié : retire les valeurs internes précises sur les caps
+  serveur (rate-limit en req/min et req/sec) et remplace par
+  "rate-limit par token". Les caps réels restent appliqués côté infra
+  mais ne sont plus surfacés sur npm. Aucun changement de code SDK.
+
 ## 0.3.4 — 2026-05-09
 
 ### Documentation
