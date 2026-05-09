@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.4 — 2026-05-09
+
+### Documentation
+
+- README: new "Profiling — preview (coming soon)" section announcing
+  the upcoming Web profiler (planned for ~v0.4.0, will use
+  `Performance.profile()` with a `Performance.measure()` fallback).
+  Mirrors the API just shipped on `@pionne/react-native@0.8.0`. Same
+  backend endpoint (`POST /api/profiles`), same retention model
+  (raw 7 d, aggregates 90 d). Devs can already POST samples directly
+  if they want profiling today. No code change.
+
 ## 0.3.3 — 2026-05-08
 
 ### Documentation

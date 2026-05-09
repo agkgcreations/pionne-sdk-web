@@ -73,6 +73,32 @@ Pionne.setTags({ tier: 'pro', region: 'eu' });
 Pionne.setEnabled(false);
 ```
 
+### Profiling — preview (coming soon)
+
+Continuous-ish CPU profiling is **shipped on `@pionne/react-native@0.8.0`**
+(Hermes sampler) and is on the roadmap for `@pionne/web` next. The browser
+implementation will use `Performance.profile()` (Chrome only, behind a flag
+in Firefox/Safari) and fall back to `Performance.measure()`-based manual
+spans where the sampler isn't available.
+
+The API will mirror RN exactly so you can reuse the same wrappers across
+platforms:
+
+```ts
+// Coming in @pionne/web ~v0.4.0
+await Pionne.profile('CheckoutFlow', async () => {
+  await fetchCart();
+  await submitOrder();
+}, { route: '/checkout' });
+```
+
+Same backend (`POST /api/profiles`), same retention model (raw 7 d,
+aggregates 90 d), same flame graph view in the mobile dashboard.
+
+If you need profiling **today** in a browser, you can post your own samples
+to the endpoint directly — the JSON shape is documented at
+[pionne.agkgcreations.fr/profiling/intro](https://pionne.agkgcreations.fr/profiling/intro).
+
 ### Bundle ID pinning — N/A on Web
 
 The "Bundle ID" anti-token-theft check on Pionne projects is **mobile only**
