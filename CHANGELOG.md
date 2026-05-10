@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.6 — 2026-05-10
+
+### Fixed
+
+- **Actionable error message on permanent ingest rejection.** `send()`
+  now parses the JSON error envelope on 401/403/422, distinguishes
+  the failure modes (Bundle ID mismatch / Token rejected / 422
+  validation), and emits a `console.warn` (once per session, even in
+  prod) that includes the `app_id` actually sent and the masked
+  `expected_format` returned by the server. Resolves the silent
+  rejection footgun where a misconfigured token or stale bundle
+  pinning would drop events without any visible signal in the host
+  page's console.
+
 ## 0.3.5 — 2026-05-09
 
 ### Documentation
