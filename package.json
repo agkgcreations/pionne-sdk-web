@@ -21,7 +21,6 @@
     "svelte",
     "error-monitoring",
     "crash-reporting",
-    "sentry-alternative",
     "observability"
   ],
   "main": "dist/index.cjs",
