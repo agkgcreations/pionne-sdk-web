@@ -114,8 +114,8 @@ deployment/tenant differentiation. See the
 
 ### Geography (opt-in)
 
-Approximate visitor location (city, region, country) attached to every event,
-just like Sentry. Off by default for privacy — flip `sendGeography` to enable:
+Approximate visitor location (city, region, country) attached to every event.
+Off by default for privacy — flip `sendGeography` to enable:
 
 ```ts
 Pionne.init({
