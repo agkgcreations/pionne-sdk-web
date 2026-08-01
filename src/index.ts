@@ -123,11 +123,9 @@ function buildEvent(
     ...extra,
   };
 
-  if (config.beforeSend) {
-    const result = config.beforeSend(event);
-    if (!result) return null;
-    return result;
-  }
+  // `beforeSend` is NOT applied here — it runs in `send()`, once the screenshot is attached.
+  // It is documented as the last hook before sending and is the natural place to scrub or
+  // drop personal data; showing it an event without the picture would defeat that purpose.
   return event;
 }
 
@@ -155,7 +153,25 @@ function send(event: PionneEvent): void {
         if (uri) event.screenshot = uri;
       })
       .catch(() => undefined)
-      .then(() => ship(event));
+      .then(() => shipFiltered(event));
+    return;
+  }
+  shipFiltered(event);
+}
+
+/** Apply `beforeSend` — with the screenshot already attached — then ship, unless dropped. */
+function shipFiltered(event: PionneEvent): void {
+  if (!config) return;
+  if (config.beforeSend) {
+    let result: PionneEvent | null = null;
+    try {
+      result = config.beforeSend(event);
+    } catch {
+      // A throwing hook must not take the report down with it: send the event untouched.
+      result = event;
+    }
+    if (!result) return;
+    ship(result);
     return;
   }
   ship(event);
