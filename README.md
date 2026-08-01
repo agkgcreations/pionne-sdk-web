@@ -2,7 +2,32 @@
 
 Error monitoring SDK for the browser — by [Pionne](https://pionne.agkgcreations.fr).
 
-Auto-captures uncaught errors and unhandled promise rejections, ships rich client context (UA, OS, viewport, locale, URL), and survives page unloads via `navigator.sendBeacon`. ~3 KB gzipped, zero dependencies, no source maps required.
+Auto-captures uncaught errors and unhandled promise rejections, ships rich client context (see below), and survives page unloads via `navigator.sendBeacon`. **~7.7 KB gzipped**, zero dependencies, no source maps required.
+
+## What lands on every event
+
+| | |
+|---|---|
+| **Platform** | always `web`, so browser events sit next to `react_native` and `node` ones |
+| **Browser** | name, version, and **full version** (`120.0.6099.109`) via Client Hints |
+| **OS** | name and the **real version** — see the warning below |
+| **Window** | `viewport_width/height`, recomputed **per event** |
+| **Screen** | size, pixel density, orientation |
+| **Machine** | CPU architecture, device model, RAM, logical cores |
+| **Network** | effective connection type (`4g`, `3g`…), online flag |
+| **Page** | current URL, referrer, and the URL the SPA session started on |
+| **Locale** | language, timezone |
+
+⚠️ **The viewport is not the screen, and that distinction is the point.** A 27" iMac reports a
+2560px screen while the tab may be 900px wide; a layout bug reproduces at the *window* size.
+It is therefore recomputed on every event, never snapshotted at init — users resize and rotate.
+
+⚠️ **OS version needs Client Hints.** The User-Agent has been frozen for years: every macOS
+since Catalina reports `10_15_7`, and Windows 10 and 11 both report `10.0`. So "does this only
+happen on Windows 11?" is unanswerable from the UA alone. Chromium exposes the real value
+asynchronously, and this SDK asks for it — but Safari and Firefox do not implement it, so
+those events keep the (wrong) UA-derived version. Events fired before the browser answers also
+keep it: a crash at boot is the one you least want to delay.
 
 Works in any browser app — **plain JS, React, Vue, Svelte, Angular, Next.js, Astro, etc.**
 
@@ -177,6 +202,10 @@ if you have your own.
 | `tags`                       | `Record<string, string>`   | unset                     |
 | `maxStackFrames`             | `number`                   | `50`                      |
 | `beforeSend`                 | `(event) => event \| null` | unset (drop if `null`)    |
+| `captureScreenshot`          | `boolean`                  | `false`                   |
+| `screenshotQuality`          | `number` (0–1)             | `0.5`                     |
+| `screenshotMask`             | `string` (CSS selector)    | unset                     |
+| `screenshot`                 | `(node, opts) => Promise<string>` | auto-loaded renderer |
 | `sendGeography`              | `boolean`                  | `false`                   |
 | `geographyEndpoint`          | `string`                   | `https://ipapi.co/json/`  |
 | `releaseHealth`              | `boolean`                  | `true`                    |
@@ -187,6 +216,7 @@ if you have your own.
 - **`maxEventsPerSecond`** — token-bucket client. Au-delà, les events sont droppés silencieusement. Protège contre les `setInterval` qui throw en boucle. `0` désactive (déconseillé).
 - **`releaseHealth`** — ouvre une session à `init()` pour calculer le crash-free user rate. Désactivable.
 - **`sendGeography`** — opt-in : attache `contexts.geo` (city/region/country/country_code) résolu IP-side. Pas de geolocation API, pas de permission.
+- **`beforeSend`** — dernier point de passage, **capture d'écran déjà attachée**. C'est donc là qu'on inspecte, réduit ou supprime l'image avant qu'elle parte : `return null` abandonne l'event, `delete event.screenshot` le garde sans image. Un hook qui throw n'emporte pas le rapport — l'event part inchangé.
 
 ## Rate limit serveur
 
