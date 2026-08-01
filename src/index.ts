@@ -2,7 +2,9 @@ import {
   gatherDynamicContext,
   gatherStaticContext,
   mergeContexts,
+  resolveClientHints,
 } from './context';
+import { captureScreenshot } from './screenshot';
 import {
   type FeedbackContext,
   type FeedbackPayload,
@@ -39,12 +41,28 @@ const DEFAULT_GEO_ENDPOINT = 'https://ipapi.co/json/';
 const DEFAULT_MAX_STACK = 50;
 
 type ResolvedConfig = Required<
-  Omit<PionneOptions, 'beforeSend' | 'userIdAnon' | 'tags' | 'release' | 'releaseHealth' | 'maxEventsPerSecond'>
+  Omit<
+    PionneOptions,
+    | 'beforeSend'
+    | 'userIdAnon'
+    | 'tags'
+    | 'release'
+    | 'releaseHealth'
+    | 'maxEventsPerSecond'
+    // Screenshot knobs stay optional: only `captureScreenshot` gets a default, the rest
+    // are forwarded as-is so the screenshot module keeps ownership of its own defaults.
+    | 'screenshotQuality'
+    | 'screenshotMask'
+    | 'screenshot'
+  >
 > & {
   beforeSend?: PionneOptions['beforeSend'];
   userIdAnon?: string;
   tags?: Record<string, string>;
   release?: string;
+  screenshotQuality?: number;
+  screenshotMask?: string;
+  screenshot?: PionneOptions['screenshot'];
 };
 
 let config: ResolvedConfig | null = null;
@@ -113,7 +131,37 @@ function buildEvent(
   return event;
 }
 
+/** Hard ceiling on the screenshot: past this, the event leaves without a picture. */
+const SCREENSHOT_TIMEOUT_MS = 1200;
+
+/**
+ * Attach a screenshot when asked, then ship. The event is NEVER held hostage by the
+ * renderer: on failure, on timeout, or with no renderer installed, it goes out as-is.
+ * A crash report that arrives without a picture beats a picture that never arrives.
+ */
 function send(event: PionneEvent): void {
+  if (!config) return;
+  if (config.captureScreenshot && !event.screenshot) {
+    const shot = captureScreenshot({
+      quality: config.screenshotQuality,
+      mask: config.screenshotMask,
+      render: config.screenshot,
+    });
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), SCREENSHOT_TIMEOUT_MS),
+    );
+    Promise.race([shot, timeout])
+      .then((uri) => {
+        if (uri) event.screenshot = uri;
+      })
+      .catch(() => undefined)
+      .then(() => ship(event));
+    return;
+  }
+  ship(event);
+}
+
+function ship(event: PionneEvent): void {
   if (!config) return;
   if (rateLimiter && !rateLimiter.allow()) {
     droppedByRateLimit++;
@@ -300,7 +348,32 @@ export const Pionne = {
     const autoContext = options.autoContext ?? true;
     staticContext = autoContext ? gatherStaticContext() : {};
 
-    config = {
+    // Client Hints resolve asynchronously — they refine the UA-derived guesses (real OS
+    // version, full browser version, CPU architecture) as soon as the browser answers.
+    // Events fired before that keep the UA values rather than waiting: a crash at boot is
+    // the one you least want to delay. Same best-effort contract as the geo lookup.
+    if (autoContext) {
+      resolveClientHints()
+        .then((patch) => {
+          if (!patch || Object.keys(patch).length === 0) return;
+          const ctx = staticContext.contexts ?? {};
+          staticContext.contexts = {
+            ...ctx,
+            os: { ...(ctx.os ?? {}), ...(patch.os ?? {}) },
+            browser: { ...(ctx.browser ?? {}), ...(patch.browser ?? {}) },
+            device: { ...(ctx.device ?? {}), ...(patch.device ?? {}) },
+          };
+          // Flat mirror, kept in sync for server-side filtering.
+          if (patch.os?.version) staticContext.os_version = patch.os.version;
+        })
+        .catch(() => {
+          // Monitoring must never surface its own failures.
+        });
+    }
+
+    // Built as a const first, then published to the module-level `config`: assigning and
+    // reading a mutable binding across async closures is what cost the narrowing above.
+    const cfg: ResolvedConfig = {
       token: options.token,
       endpoint: options.endpoint ?? DEFAULT_ENDPOINT,
       release: options.release,
@@ -314,24 +387,29 @@ export const Pionne = {
       userIdAnon: options.userIdAnon,
       tags: options.tags,
       maxStackFrames: options.maxStackFrames ?? DEFAULT_MAX_STACK,
+      captureScreenshot: options.captureScreenshot ?? false,
+      screenshotQuality: options.screenshotQuality,
+      screenshotMask: options.screenshotMask,
+      screenshot: options.screenshot,
       sendGeography: options.sendGeography ?? false,
       geographyEndpoint: options.geographyEndpoint ?? DEFAULT_GEO_ENDPOINT,
     };
+    config = cfg;
 
-    if (config.captureUncaughtErrors) installUncaughtErrorHandler();
-    if (config.captureUnhandledRejections) installRejectionHandler();
-    if (config.sendGeography) fetchGeography(config.geographyEndpoint);
+    if (cfg.captureUncaughtErrors) installUncaughtErrorHandler();
+    if (cfg.captureUnhandledRejections) installRejectionHandler();
+    if (cfg.sendGeography) fetchGeography(cfg.geographyEndpoint);
 
     // Release Health — open a session unless the host opted out.
     if (options.releaseHealth !== false) {
       _startSession({
-        endpoint: config.endpoint,
-        token: config.token,
-        release: config.release,
-        environment: config.environment,
+        endpoint: cfg.endpoint,
+        token: cfg.token,
+        release: cfg.release,
+        environment: cfg.environment,
         appVersion: staticContext.app_version,
         osName: staticContext.os_name,
-        userIdAnon: config.userIdAnon,
+        userIdAnon: cfg.userIdAnon,
       });
     }
     } catch (e) {

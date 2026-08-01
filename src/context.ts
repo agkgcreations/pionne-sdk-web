@@ -102,6 +102,10 @@ export function gatherStaticContext(): Partial<PionneEvent> {
           : undefined,
       locale: language,
       timezone,
+      // Both are coarse by design and absent on Safari/Firefox — but when they are
+      // there, they separate "the app is slow" from "this machine has 2 GB and 2 cores".
+      memory_gb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+      cpu_cores: navigator.hardwareConcurrency,
     },
     runtime: {
       name: 'browser',
@@ -124,6 +128,19 @@ export function gatherStaticContext(): Partial<PionneEvent> {
  */
 export function gatherDynamicContext(): Partial<PionneEvent> {
   if (typeof window === 'undefined') return {};
+  // Connection type lives behind a vendor-prefixed, non-standard object.
+  const conn = (
+    navigator as Navigator & {
+      connection?: { effectiveType?: string };
+      mozConnection?: { effectiveType?: string };
+      webkitConnection?: { effectiveType?: string };
+    }
+  );
+  const network =
+    conn.connection?.effectiveType ??
+    conn.mozConnection?.effectiveType ??
+    conn.webkitConnection?.effectiveType;
+
   return {
     contexts: {
       app: {
@@ -133,6 +150,16 @@ export function gatherDynamicContext(): Partial<PionneEvent> {
       },
       browser: {
         online: navigator.onLine,
+        network_type: network,
+      },
+      // Recomputed per event, NOT snapshotted at init: the user resizes, rotates,
+      // opens the devtools. A layout bug reproduces at the size the window had when
+      // it broke — a value captured minutes earlier would send us hunting elsewhere.
+      device: {
+        viewport_width_pixels: window.innerWidth,
+        viewport_height_pixels: window.innerHeight,
+        orientation:
+          window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait',
       },
     },
   };
@@ -160,6 +187,63 @@ export function mergeContexts(
         ...(base.contexts?.app ?? {}),
         ...(extra.contexts?.app ?? {}),
       },
+      // `device` must be merged too, not replaced: the static snapshot holds the screen,
+      // type and locale, the dynamic one holds the viewport. A plain spread of
+      // `extra.contexts` would silently drop half of it — the half you look at first.
+      device: {
+        ...(base.contexts?.device ?? {}),
+        ...(extra.contexts?.device ?? {}),
+      },
     },
   };
+}
+
+// =====================================================================
+// USER-AGENT CLIENT HINTS
+// =====================================================================
+
+/** Shape of the bits of `navigator.userAgentData` we use (not in lib.dom yet). */
+interface UADataValues {
+  platformVersion?: string;
+  uaFullVersion?: string;
+  architecture?: string;
+  model?: string;
+}
+interface NavigatorUAData {
+  getHighEntropyValues?(hints: string[]): Promise<UADataValues>;
+}
+
+/**
+ * Ask the browser for what the User-Agent string no longer tells.
+ *
+ * The UA has been frozen for years: every macOS since Catalina reports `10_15_7`, and
+ * Windows 10 and 11 both report `10.0`. So "os.version" read from the UA is, at best,
+ * a decade-old constant — you cannot tell whether a bug only hits Windows 11, which is
+ * exactly the question you ask when one user out of ten is affected. Chromium exposes
+ * the real values through Client Hints, asynchronously and only on request.
+ *
+ * Best-effort by design: unsupported on Safari and Firefox, may reject on a strict
+ * permissions policy. Failure leaves the UA-derived values in place.
+ */
+export function resolveClientHints(): Promise<Partial<PionneContexts>> {
+  const uaData = (navigator as Navigator & { userAgentData?: NavigatorUAData })
+    .userAgentData;
+  if (!uaData?.getHighEntropyValues) return Promise.resolve({});
+  return uaData
+    .getHighEntropyValues([
+      'platformVersion',
+      'uaFullVersion',
+      'architecture',
+      'model',
+    ])
+    .then((v) => {
+      const patch: Partial<PionneContexts> = {};
+      if (v.platformVersion) patch.os = { version: v.platformVersion };
+      if (v.uaFullVersion) patch.browser = { full_version: v.uaFullVersion };
+      if (v.architecture || v.model) {
+        patch.device = { architecture: v.architecture, model: v.model || undefined };
+      }
+      return patch;
+    })
+    .catch(() => ({}));
 }

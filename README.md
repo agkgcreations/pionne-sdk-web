@@ -67,6 +67,38 @@ Pionne.setUser(null);    // forget
 Pionne.setTags({ tier: 'pro', region: 'eu' });
 ```
 
+### Screenshot on crash — opt-in
+
+```bash
+npm i modern-screenshot        # the renderer is NOT bundled
+```
+
+```ts
+Pionne.init({
+  token: 'pio_live_xxx',
+  captureScreenshot: true,
+  screenshotQuality: 0.5,          // default
+  screenshotMask: '.my-invoice',   // extra selectors to hide
+});
+```
+
+⚠️ **This is a reconstruction, not a photograph.** The browser cannot capture the screen —
+`getDisplayMedia()` would prompt the user. The page is redrawn from the DOM, so
+**cross-origin iframes come out blank**: a Stripe card field will be an empty box, on the
+very page you most want to see. Canvas/WebGL and images served without CORS headers may
+also be missing.
+
+**Privacy.** A screenshot of a real page can hold a name, an address, an IBAN. Sensitive
+fields are masked *before* rendering — passwords, `cc-*` autocomplete, and anything marked
+`data-pionne-mask` — so masked content never reaches the image. Add your own selectors with
+`screenshotMask`. Enabling this still means shipping user data to your backend: check your
+privacy policy and retention.
+
+The event is never held hostage: if the renderer is missing, fails, or takes longer than
+1.2 s, the report is sent **without** the picture.
+
+Prefer to bring your own renderer? Pass `screenshot(node, { quality })` returning a data URI.
+
 ### Opt-out
 
 ```ts
