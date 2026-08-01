@@ -1,7 +1,12 @@
 import type { PionneContexts, PionneEvent } from './types';
 
+/** Injected at build time from package.json (see tsup.config.ts) — never edit by hand. */
+declare const __SDK_VERSION__: string;
+
 const SDK_NAME = 'pionne.web';
-const SDK_VERSION = '0.1.0';
+// Was hard-coded to '0.1.0' and had drifted five releases behind: every event shipped a
+// version that no longer existed, which quietly poisons any filtering by SDK version.
+const SDK_VERSION = typeof __SDK_VERSION__ === 'string' ? __SDK_VERSION__ : '0.0.0-dev';
 
 /**
  * Detect browser name + version from the user agent. Crude but enough to

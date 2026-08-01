@@ -84,6 +84,13 @@ export interface PionneEvent {
   level?: Level;
 
   // Flat fields (kept for backward compat / quick filtering server-side).
+  /**
+   * Emitting platform — always `'web'` from this SDK. Its siblings already send one
+   * (`react_native` for @pionne/react-native, `process.platform` for @pionne/node), so
+   * browser events were the only ones arriving with an empty platform column, impossible
+   * to tell apart at a glance in the dashboard.
+   */
+  platform?: string;
   release?: string;
   environment?: string;
   app_version?: string;

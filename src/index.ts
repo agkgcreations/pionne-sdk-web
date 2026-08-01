@@ -89,6 +89,10 @@ function buildEvent(
 
   const event: PionneEvent = {
     ...merged,
+    // Sent on every event: the sibling SDKs fill this column (`react_native`, `process.platform`)
+    // and browser events were the only ones landing without it. Placed before `...extra` so an
+    // integration can still override it.
+    platform: 'web',
     exception_type: e.name || 'Error',
     message: e.message || null,
     stack: parseStack(e, config.maxStackFrames),

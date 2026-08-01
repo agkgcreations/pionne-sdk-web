@@ -1,6 +1,6 @@
 {
   "name": "@pionne/web",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Error monitoring SDK for the browser — Pionne. Auto-captures uncaught errors and unhandled rejections, ships client context (UA, viewport, locale), tracks Release Health (crash-free user rate), and exposes a feedback API.",
   "license": "MIT",
   "author": "AGKG Creations",
